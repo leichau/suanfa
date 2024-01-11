@@ -5,6 +5,8 @@ Module implementing common.
 """
 from Crypto.PublicKey import RSA
 from Crypto.PublicKey import ECC
+from Crypto.Signature import DSS
+from Crypto.Hash import SHA256
 
 class Msign:
     """
@@ -36,11 +38,37 @@ class Msign:
     @classmethod
     def ecc_key_gen(cls):
         key = ECC.generate(curve='secp256r1')
+        private_key = key
+        public_key = private_key.public_key()
+        print('private_key:', private_key)
+        print('public_key:', public_key)
+        print('curve:', private_key.curve)
+        print('point_x:', private_key.pointQ.x)
+        print('point_y:', private_key.pointQ.y)
+        print('d:', private_key.d)
         with open('myprikey.pem', 'w') as f:
             f.write(key.export_key(format='PEM'))
         with open('mypubkey.pem', 'w') as f:
             f.write(key.public_key().export_key(format='PEM'))
 
+        # ECDSA 签名例程
+        # Message to sign
+        message = b"Hello, PyCryptodome!"
+        print('message:', message)
+        # Signing
+        h = SHA256.new(message)
+        print('SHA256:', h.hexdigest())
+        signer = DSS.new(private_key, 'fips-186-3')
+        signature = signer.sign(h)
+        print('signature:', signature.hex())
+        # Verification
+        verifier = DSS.new(public_key, 'fips-186-3')
+        try:
+            verifier.verify(h, signature)
+            print("Signature is valid.")
+        except ValueError:
+            print("Signature is invalid.")
+
 if __name__ == '__main__':
     # print(sys.argv)
-    Msign.rsa_key_gen()
+    Msign.ecc_key_gen()
