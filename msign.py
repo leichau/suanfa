@@ -11,6 +11,7 @@ from Crypto.Hash import SHA224, SHA256, SHA384, SHA512
 from Crypto.Cipher import PKCS1_OAEP
 # from Crypto.Cipher import PKCS1_v1_5
 # from Crypto.Random import get_random_bytes
+from Crypto.Util.asn1 import DerSequence
 import sys
 
 class Msign:
@@ -163,9 +164,24 @@ class Msign:
         else:
             h = hash_digest.new(message)
         print('SHA{}: {}'.format(hash_bits, h.hexdigest()))
-        signer = DSS.new(private_key, 'fips-186-3')
+        # mode 签名模式
+        # encoding 签名编码格式
+        # - 'binary' 默认格式，原始的 `r` 和 `s` 组合
+        # - 'der', DER 序列格式，带有 DER 标签
+        # 跳转 new 查看详细参数定义
+        signer = DSS.new(private_key, mode='fips-186-3')
         signature = signer.sign(h)
         print('signature:', signature.hex())
+        # 签名数据为原始格式时，平分即得 r/s
+        r = signature[0:len(signature)//2].hex()
+        s = signature[len(signature)//2:].hex()
+        # 签名数据为 DER 格式时，可按如下方式提取 r/s
+        # der = DerSequence()
+        # der.decode(signature)
+        # r = '{:>X}'.format(der[0])
+        # s = '{:>X}'.format(der[1])
+        print('r:', r)
+        print('s:', s)
         return signature
 
     @classmethod
@@ -186,7 +202,7 @@ class Msign:
         else:
             h = hash_digest.new(message)
         print('SHA{}: {}'.format(hash_bits, h.hexdigest()))
-        verifier = DSS.new(public_key, 'fips-186-3')
+        verifier = DSS.new(public_key, mode='fips-186-3')
         try:
             verifier.verify(h, signature)
             print("Signature verified ok.")
@@ -196,12 +212,12 @@ class Msign:
             return False
 
     @classmethod
-    def ecc_point_add(cls, QA, QB, curve_bits):
+    def ecc_point_add(cls, qA, qB, curve_bits):
         bytesize = (curve_bits+7)//8
-        QAB = QA + QB
-        print('QAB-x:', QAB.x.to_bytes(bytesize).hex())
-        print('QAB-y:', QAB.y.to_bytes(bytesize).hex())
-        return QAB
+        qAB = qA + qB
+        print('QAB-x:', qAB.x.to_bytes(bytesize).hex())
+        print('QAB-y:', qAB.y.to_bytes(bytesize).hex())
+        return qAB
 
     @classmethod
     def ecc_point_multiply(cls, d, Q, curve_bits):
@@ -214,6 +230,7 @@ class Msign:
     @classmethod
     def ecc_test_case(cls):
         # 签名/验签测试
+        print('------Key Generate Test------')
         curve_bits = 256
         hash_bits = 256
         private_key, public_key = Msign.ecc_key_gen(curve_bits)
@@ -221,29 +238,48 @@ class Msign:
             message = b"Hello, PyCryptodome!"
             signature = Msign.ecc_sign(private_key, message, hash_bits)
             Msign.ecc_verify(public_key, signature, message, hash_bits)
+
+        # 指定公私钥签名/验签测试
+        print('------Public/Private Key Sign Test------')
+        hash_bits = 512
+        curve_bits = 521
+        curve_type = 'secp{}r1'.format(curve_bits)
+        # 生成公钥
+        xA = '008BA2AAD80E0552D5EF938FE6CF0708DCE42D2214F890542B8BC19D4D7FF7E6651AC6A7C462A95885F74774990A261C2B1E08F23258BB79B16E23BAA663B1ACDF26'
+        yA = '002408D8253490F8B73DD276E1D442B5EB844C687FCC5273A212DF297FF11DC24769F36ADDE9E65D4CFD040A7292C16A7797871BC4DE1C668A74224BD9F2702524C6'
+        public_key = ECC.construct(curve=curve_type, point_x=int(xA, base=16), point_y=int(yA, base=16))
+        # 生成私钥
+        dA = '008E2FF8857E11A28B7D5087912F11672216FC11FCD2238E6789C535EED3BCBD62CD21FA4F0FFFF15906D5781695DC8EC263CCAC721CC8BAFD8E4C9BE205C7694CDB'
+        private_key = ECC.construct(curve=curve_type, d=int(dA, base=16))
+        # 签名/验签
+        message = b"Hello, PyCryptodome!"
+        signature = Msign.ecc_sign(private_key, message, hash_bits)
+        Msign.ecc_verify(public_key, signature, message, hash_bits)
+
         # 点加/点乘测试
+        print('------Point Add/Multiply Test------')
         curve_bits = 521
         curve_type = 'secp{}r1'.format(curve_bits)
         # 生成公钥点
         xA = '007AC5E93871939B08AE562D4E9AC87377B63753054E44964902D8A3A69D3B8B7D2A7E0159D2EED63A807101BCE7C20211C27216172C79056AC99F448DD9A28FF078'
         yA = '01366F31D50F56E984ECF10351C107138352703F7F0FD5D3A6D789A09B6C100D8B2888CDF84DF4F527A6BB9FD18B8A58563244EB51E2216018A6FE9DA7976E546048'
-        QA = ECC.EccPoint(int(xA, base=16), int(yA, base=16), curve=curve_type)
+        qA = ECC.EccPoint(int(xA, base=16), int(yA, base=16), curve=curve_type)
         # 私钥
         dA = '01961E7A263EA9CF4AEEFADF2E5667DF4990A2BD67FF47123DAD2F249C6B86DAFDF16C0118CED25588400F81DFA18D04B8509B0556F58A29B3B518EFEC3FEF32D19A'
         dA = int(dA, base=16)
         # 生成公钥点
         xB = '01E5BBC40344412CD30A77B8B4378718572E5DDCCFE729CBB1CC03C6B911E965DC066EAA49D6BBF46711283F47752A522E8C458E4EDC062FC3C838BC7942971466FA'
         yB = '0018B9B39485F5CC37785D2AC5D3CEC006CA0B9C03E75AEF89976660D72F2CA9157A1370A7A76B7D89D8CB48F2B747E5753A50BDAB0BA809C0BA4F4C2652DF75A777'
-        QB = ECC.EccPoint(int(xB, base=16), int(yB, base=16), curve=curve_type)
+        qB = ECC.EccPoint(int(xB, base=16), int(yB, base=16), curve=curve_type)
         # 私钥
         dB = '011040A2EBF7FEA771F35948D7CC47C8174AA2E436150A58F0602332A32EFC14038B3CC384C613A7EE8C578E75FFD37A024E5D08089C3570049FB89A2C0A7332492F'
         dB = int(dB, base=16)
         # 点加
-        Msign.ecc_point_add(QA, QB, curve_bits)
+        Msign.ecc_point_add(qA, qB, curve_bits)
         # 点乘
-        Msign.ecc_point_multiply(dA, QB, curve_bits)
-        Msign.ecc_point_multiply(dB, QA, curve_bits)
+        Msign.ecc_point_multiply(dA, qB, curve_bits)
+        Msign.ecc_point_multiply(dB, qA, curve_bits)
 
 if __name__ == '__main__':
     # print(sys.argv)
-    Msign.rsa_test_case()
+    Msign.ecc_test_case()
